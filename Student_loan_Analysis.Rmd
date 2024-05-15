@@ -1,0 +1,1237 @@
+---
+title: "US Default Student Loans Analysis 2015 to 2018"
+author: "Jason A. Dayuha"
+date: "2024-04-2"
+output: 
+  html_document:
+    toc: yes
+    theme: united
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE)
+```
+
+# 1. Introduction
+
+This analysis is part of the weekly data analysis program from Tidy Tuesday. It consists of a community of individuals who have a passion for data analytics. Each week, the community analyzes a data project, shares their findings to enhance data analysis skills, and deepens understanding of the week’s subject. The focus of this project is specifically on US student loan debt, particularly default debt. We will analyze the amount of student loan defaults managed by various private collection agencies across the US, as well as newly added loans. Additionally, we will examine the various methods through which defaulted loans have been recovered.
+
+
+
+
+# 2. Guided Questions
+
+2.1 Characters and teams:
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	US Private Collection Agency
+
+2.2  Business Task: The Student Loan Default data will answer the following question:
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	What is the overall recovery rate?
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	Which recovery methods are most effective?
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	How do recovery efforts correlate with the size of the inventory?
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	How do agencies compare in their effectiveness?
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	Is there seasonality in recovery amounts?
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	Can we predict future recoveries?
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	What is the trend in the amount of new inventory being added?
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	What impact do external factors have on recoveries?
+
+
+By answering these questions, we can further understand the default student loans growing problem in the United States.
+
+
+
+# 3.  Data Preperation 
+
+The raw data for this analysis is publicly available on the US government website [Federal Student Aid]( https://studentaid.gov/data-center/student/default). However, since this project is based on Tidy Tuesday, they have also prepared the data for analysis to meet the specific goals of the Tidy Tuesday project. Access this pre-cleaned data on the GitHub Tidy Tuesday link [here ](https://github.com/rfordatascience/tidytuesday/tree/master/data/2019/2019-11-26).
+
+The raw data consists of 12 Excel files, which are saved to a private, secure computer for analysis. The data is organized by business quarter per year, per file. Unfortunately, this data consists of information from 2015 to 2018. Each file contains the name of a private collection agency in the US, existing default loans for each quarter, as well as default loans added for that quarter. Different types of recovery methods for these default loans are included in each Excel file.
+
+# 4. Process and Clean Data
+
+4.1 Download the Libraries Used to Work with This Data
+
+This analysis project will be conducted using R programming due to its free, open-source statistical and graphical analysis capabilities. Please refer to the Appendix regarding the R programming code used to accomplish the following tasks:
+
+```{r library, include=FALSE}
+
+# 4.1 Library used installations:
+
+# install.packages("tidytuesdayR")
+# install.packages("tidyverse")
+# install.packages("dplyr")
+# install.packages("janitor")
+# install.packages("skimr")
+# install.packages("lubridate")
+# install.packages("ggpubr")
+# install.packages("data.table")
+# install.packages("viridis")
+# install.packages("leaflet")
+# install.packages("htmlwidgets")
+# install.packages("htmltools")
+# install.packages("kableExtra")
+# install.packages("here")
+# install.packages("visdat")
+# install.packages("readxl")
+# install.packages("tidyr")
+# install.packages("scales")
+# install.packages("plotly")
+# install.packages("forecast")
+# install.packages("gridExtra")
+#install.packages("formattable")
+
+
+library ("tidytuesdayR")
+library("tidyverse")
+library("dplyr")
+library("janitor")
+library("skimr")
+library("lubridate")
+library("ggpubr")
+library("data.table")
+library("viridis")
+library("leaflet")
+library("htmlwidgets")
+library("htmltools")
+library("kableExtra")
+library("here")
+library( "visdat")
+library( "readxl")
+library("tidyr")
+library("lubridate")
+library("scales")
+library("plotly")
+library("forecast")
+library("gridExtra")
+library("formattable")
+
+
+
+```
+
+### Data Exploration
+
+4.2 Compile data from individual xls files:
+```{R Download_data,eval=TRUE,include= FALSE}
+
+#  the folder path
+folder_path <- here()
+
+# List all Excel files in the folder
+excel_files <- list.files(folder_path, pattern = "\\.xls[x]*$", full.names = TRUE)
+excel_files <- excel_files[!grepl("/~\\$", excel_files)]
+
+# Create a tibble with original paths and modified names, since we have to modify the file 
+file_data <- tibble(
+  original_path = excel_files,
+  modified_name = excel_files %>%
+    str_remove_all("PCA_Report_|pca-report-") %>%
+    tolower() %>%
+    str_replace("default_recoveries_pca", "fy15q4") %>%
+    str_remove("\\.xls[x]*$")
+)
+
+# create 1st element of the list to a spread sheet.
+first_data <- read_excel(file_data$original_path[1], skip = 4) %>% # spd start after 4 row
+  janitor::clean_names() %>%
+  # Convert empty strings to NA for character columns
+  mutate(across(where(is.character), ~na_if(., ""))) %>%
+  # For numeric columns, replace 0 with NA
+  mutate(across(where(is.numeric), ~as.double(if_else(. == 0, NA_real_, .))))
+# Capture the desired column order from first_data
+column_order <- names(first_data)
+# Assuming the above code exists and first_data has been defined
+
+# Extract the year and quarter from the modified_name of the first file
+year_quarter <- str_extract(file_data$modified_name[1], "fy\\d{2}q\\d")
+matches <- str_match(year_quarter, "fy(\\d{2})q(\\d)")
+
+# Convert extracted values to appropriate formats
+# Add 2000 to convert '15 to 2015, adjust as needed
+year <- as.integer(matches[1,2])
+quarter <- as.integer(matches[1,3])
+
+# Add Year and Quarter columns to first_data
+first_data$year <- year
+first_data$quarter <- quarter
+
+
+# modify names in the list called file_data. 
+dataframes_list <- list()
+for (i in 2:12) {
+  if (i <= nrow(file_data)) {
+    # Determine the number of rows to skip based on the file index
+    skip_rows <- if(i == 7) 5 else 4 # element number 7 must skip 5 spaces
+    
+    #do some cleaning up of the data
+    temp_data <- read_excel(file_data$original_path[i], skip = skip_rows) %>%
+      janitor::clean_names() %>%
+      rename_with(~ str_replace(., "at_start_of_quarter", "starting")) %>%  #rename column
+      mutate(across(where(is.character), ~na_if(., ""))) %>% # put NA for blank cells
+      mutate(across(where(is.numeric), ~as.double(if_else(. == 0, NA_real_, .))))
+    
+    # Ensure temp_data columns are reordered to match first_data
+    if(all(column_order %in% names(temp_data))) {
+      temp_data <- temp_data[, column_order, drop = FALSE]
+    }
+    
+    # Extract the year and quarter from the modified_name of the current file and a new columns year and quarter
+    year_quarter <- str_extract(file_data$modified_name[i], "fy\\d{2}q\\d")
+    matches <- str_match(year_quarter, "fy(\\d{2})q(\\d)")
+    
+    # Convert extracted values to appropriate formats and add to temp_data
+    year <- as.integer(matches[1,2])   # Adjust the base year as needed
+    quarter <- as.integer(matches[1,3])
+    
+    # Add Year and Quarter columns to temp_data
+    temp_data$year <- year
+    temp_data$quarter <- quarter
+    
+    # Add the processed dataframe to the list, with an index or modified name as the key
+    dataframes_list[[i-1]] <- temp_data  # Using i-1 to maintain a 0-based index in the list
+  }
+}
+
+# Combine the data frame and the element data frame_list into 1 data frame
+combined_data <- bind_rows(first_data, do.call(bind_rows, dataframes_list))
+
+#use this to compile the list elements into dataframe in r
+
+loans1<- combined_data %>%
+  filter(agency_name != "Total", 
+         !if_all(c("starting", "added", "consolidation", 
+                   "rehabilitation", "voluntary_payments", "wage_garnishments"), is.na))
+
+#clean code 
+rm(temp_data,first_data, file_data,dataframes_list,combined_data, matches)
+
+# produce an overview of the data
+str(loans1)
+
+
+glimpse(loans1)
+
+```
+
+4.3 Identify column names
+```{r Column names, eval=TRUE, message=FALSE,  echo=FALSE, results='asis'}
+#4.3 Identify Column names
+
+column_names <- names(loans1)
+
+# Determine optimal number of columns based on total column names, ensuring more than one column if possible
+total_columns <- length(column_names)
+num_columns <- ifelse(total_columns > 1, min(3, total_columns), 1)  # Adjust '3' to set max columns
+
+# Calculate number of rows, distributing names as evenly as possible across columns
+rows_needed <- ceiling(total_columns / num_columns)
+
+# Create a matrix with the appropriate structure, filling with column names
+column_matrix <- matrix("", nrow = rows_needed, ncol = num_columns)  # Initialize with empty strings
+column_matrix[1:total_columns] <- column_names
+
+# Convert to data frame for kable
+column_names_df <- as.data.frame(column_matrix, stringsAsFactors = FALSE)
+
+# Adjusting the names of the data frame to exclude "Column 1", "Column 2", etc. headers
+names(column_names_df) <- rep("", ncol(column_names_df))
+
+#Use kable and kableExtra to generate and style the table without "Column 1", "Column 2", etc. as headers
+kable(column_names_df, caption = "List of Column Names in the loans1 Data Frame", format = "html", col.names = NA) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+  
+# # Use kable to generate the table with no column headers
+# kable_output <- kable(column_names_df, caption = "List of Column Names in the loans1 Data Frame", format = "html", col.names = NA)
+
+
+#clean code:
+# Cleanup unnecessary variables
+rm(column_names, total_columns, num_columns, rows_needed, column_matrix, column_names_df)
+
+```
+
+4.4 Clean up column names for proper formatting 
+```{r clean_column, eval=TRUE, include= FALSE}
+
+# 4.4 covert all column names text with proper formatting
+clean_names(loans1)
+
+```
+
+
+
+4.5 Check to make sure all numbers are formatted correctly
+```{r number_format_check, eval=TRUE, include= FALSE}
+# 4.5 the following checks all columns if numeric:
+sapply(loans1 ,is.numeric)
+
+```
+
+4.6  Identify outliers in the raw data
+```{r outliers, eval=TRUE, include= FALSE}
+
+#4.6  Identify outliers in the raw data.
+
+# Identify numeric columns, optionally excluding specific columns like 'year' and 'quarter'
+numeric_columns <- sapply(loans1, is.numeric)
+numeric_column_names <- names(numeric_columns[numeric_columns])
+
+# Function to calculate and return indices of outliers for a given numeric column
+find_outliers <- function(column) {
+  Q1 <- quantile(column, 0.25, na.rm = TRUE)
+  Q3 <- quantile(column, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  return(which(column < lower_bound | column > upper_bound))
+}
+
+# Apply the outlier detection function to each numeric column and store results
+outliers_list <- lapply(loans1[numeric_column_names], find_outliers)
+
+# Print the number of outliers found in each numeric column, and print the outlier values explicitly
+sapply(names(outliers_list), function(column_name) {
+  num_outliers <- length(outliers_list[[column_name]])
+  cat(column_name, ": Number of outliers =", num_outliers, "\n")
+  if (num_outliers > 0) {
+    # Retrieve and print the actual outlier values using the indices
+    outlier_values <- loans1[outliers_list[[column_name]], column_name, drop = FALSE]
+    cat("Outlier values in", column_name, ":", toString(outlier_values[[1]]), "\n\n")
+  }
+})
+
+
+```
+
+4.7 Check the unique values of each text-based column
+
+```{r Unquie_vlalues,eval=TRUE, echo=FALSE}
+#4.7 check columns to see the number of unique values.
+
+# Initialize an empty data frame to store results
+unique_values_df <- data.frame(Column_Name = character(), Number_of_Unique_Values = integer(), stringsAsFactors = FALSE)
+
+# Iterate through each string column in the loans1 dataset
+for (column_name in names(loans1)) {
+  # Check if the column is of type character
+  if (is.character(loans1[[column_name]])) {
+    # Calculate the number of unique values
+    num_unique_values <- length(unique(loans1[[column_name]]))
+    # Append to the results data frame
+    unique_values_df <- rbind(unique_values_df, data.frame(Column_Name = column_name, Number_of_Unique_Values = num_unique_values))
+  }
+}
+
+# check what each unique value is on each column:
+
+# Determine the maximum number of unique values in any character column
+max_length <- max(sapply(loans1, function(col) if (is.character(col)) length(unique(col)) else 0))
+
+    # Create a list and add the counter column first
+list_of_unique_vals <- list(Counter = 1:max_length)
+
+# Iterate through each column to get unique values
+for (column_name in names(loans1)) {
+  if (is.character(loans1[[column_name]])) {
+    # Get unique values and adjust the length by adding NAs if necessary
+    unique_vals <- unique(loans1[[column_name]])
+    lengthened_vals <- c(unique_vals, rep(NA, max_length - length(unique_vals)))
+    list_of_unique_vals[[column_name]] <- lengthened_vals
+  }
+}
+
+# table
+kable(unique_values_df, "html") %>%
+  kableExtra::kable_classic(full_width = F) %>%
+  kable_styling(full_width = TRUE, position = "left") %>%
+  column_spec(1, width = "3cm") %>%
+  column_spec(2, width = "3cm")
+# Standardize values if necessary:
+
+
+#Results: no unusual unique values
+#cleaning
+rm( max_length, list_of_unique_vals)
+```
+
+4.8 Identify missing or NA entry-  visualization
+
+```{r missing, eval=TRUE, echo= FALSE, fig.width=5, fig.height=5}
+# 4.8 Analyze patterns of missingness:
+ 
+vis_miss(loans1)
+
+# Visualize missing data patterns
+missing_percents <- sapply(loans1, function(x) mean(is.na(x))) * 100
+
+# Create a data frame for display
+missing_df <- data.frame(Column = names(missing_percents),
+                         MissingPercentage = round(missing_percents, 2))
+
+# Display as a simple table using kable
+kable(missing_df, caption = "Percentage of Missing Values by Column") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+
+
+# results show prcp, Tmax, Min have a lot of missing data, above 90%. Data points form 600, looks like location info is present.
+
+## Percentage of Non zero values for each column
+# Initialize a data frame to store the counts and percentages
+counts_df <- data.frame(Column_Name = character(),
+                        Number_of_Zero_Values = integer(),
+                        Number_of_NA_Values = integer(),
+                        Percentage_NonZero_NonNA = numeric(),
+                        stringsAsFactors = FALSE)
+
+# Iterate through each column in the loans1 data frame
+for (column_name in names(loans1)) {
+  total_cells <- nrow(loans1)  # Total number of cells in the column
+  zero_count <- NA  # Default to NA for non-numeric columns
+  na_count <- sum(is.na(loans1[[column_name]]))  # Count NA values for all columns
+
+  # Check if the column is numeric for zero value counting
+  if (is.numeric(loans1[[column_name]])) {
+    zero_count <- sum(loans1[[column_name]] == 0, na.rm = TRUE)
+    non_zero_non_na <- sum(!is.na(loans1[[column_name]]) & loans1[[column_name]] != 0)  # Count non-zero, non-NA
+  } else {
+    non_zero_non_na <- sum(!is.na(loans1[[column_name]]))  # For non-numeric, just count non-NA
+  }
+
+  # Calculate the percentage of non-zero, non-NA values
+  percentage_non_zero_non_na <- (non_zero_non_na / total_cells) * 100
+
+  # Record the counts and percentage in the counts_df data frame
+  counts_df <- rbind(counts_df, data.frame(Column_Name = column_name,
+                                           Number_of_Zero_Values = zero_count,
+                                           Number_of_NA_Values = na_count,
+                                           Percentage_NonZero_NonNA = percentage_non_zero_non_na))
+}
+
+# identfy percent of completeness based on 1 column= Organization record data:
+
+
+
+# Calculate the percentage of non-NA values for each column grouped by agency_name,
+# round to two decimal places, and add a column for overall row completeness also rounded to two decimal places
+data_overview <- loans1 %>%
+  group_by(agency_name) %>%
+  summarise(across(everything(), ~round(mean(!is.na(.)) * 100, 2))) %>%
+  mutate(RowCompleteness = round(rowMeans(select(., -agency_name), na.rm = TRUE), 2)) %>%
+  ungroup()
+
+#------
+# Select the top 10 agency_name entries with the highest RowCompleteness
+top_completeness <- data_overview %>%
+  select(agency_name, RowCompleteness) %>%
+  arrange(desc(RowCompleteness)) %>%
+  top_n(18, RowCompleteness)
+
+# Display as a table using kable
+kable(top_completeness, caption = "Agancy Name by Completeness", format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+#cleaning
+#rm(missing_percents, missing_df, counts_df, data_overview)
+```
+
+4.9 Find and clean  zero values if necessary :
+
+```{r zero, eval=TRUE, echo=FALSE}
+# 4.9 Find and clean  zero values if necessary :
+
+#Initialize a data frame to store the counts of zero values
+zero_counts_df <- data.frame(Column_Name = character(), Number_of_Zero_Values = integer(), stringsAsFactors = FALSE)
+
+# Iterate through each column in the loans1 data frame
+for (column_name in names(loans1)) {
+  # Check if the column is numeric
+  if (is.numeric(loans1[[column_name]])) {
+    # Count the number of zero values
+    zero_count <- sum(loans1[[column_name]] == 0, na.rm = TRUE)
+
+    # Record the count of zero values in the zero_counts_df data frame
+    zero_counts_df <- rbind(zero_counts_df, data.frame(Column_Name = column_name, Number_of_Zero_Values = zero_count))
+  }
+}
+
+kable(zero_counts_df, "html") %>%
+  kableExtra::kable_classic(full_width = F) %>%
+  kable_styling(full_width = TRUE, position = "left") %>%
+  column_spec(1, width = "3cm") %>%
+  column_spec(2, width = "3cm")
+
+
+```
+
+4.10 check for leading and trailing white spaces
+```{r white_spaces, eval=TRUE, include= FALSE, echo=FALSE}
+#4.10 check for leading and trailing white spaces:
+
+# check if there is any trailing spaces in any of the column in the df
+
+      # Assign the name of your actual dataframe to the variable df
+      df <- loans1
+
+       # Initialize a vector to store the sum of flagged cells for each column
+      whitespace_counts <- integer(length = ncol(df))
+
+      # Loop through each column in the dataframe
+      for (i in seq_along(df)) {
+        # Check if the column is of type character
+        if (is.character(df[[i]])) {
+          # Flag cells with leading or trailing whitespace
+          flagged_cells <- grepl("^\\s+|\\s+$", df[[i]])
+          # Sum the flagged cells and store the result
+          whitespace_counts[i] <- sum(flagged_cells)
+
+          # Optionally, you can also print out the results for each column
+          cat("Column:", names(df)[i], "has", whitespace_counts[i], "cells with whitespace\n")
+        }
+      }
+
+      # Create a named vector with the counts of whitespace per column
+      whitespace_summary <- setNames(whitespace_counts[whitespace_counts != 0], names(df)[whitespace_counts != 0])
+
+      # Print the summary
+      print(whitespace_summary)
+
+  
+
+```
+
+4.11 Check and delete duplicate rows
+```{r dupliate, eval=TRUE, include= FALSE}
+#4.11 Check and delete duplicate rows:
+# Check for duplicate rows
+duplicated_rows <- duplicated(loans1)
+print(duplicated_rows)
+
+#results show none.
+# if you want the total sum:
+#sum(duplicated_rows)
+# if you want to show to show what is duplicate rows: loans1[duplicated_rows, ]
+
+```
+
+4.12 Clean up Agency names: consolidate agency names, an LLC, LP, Inc were removed
+
+```{r clean_names,eval=TRUE, echo= FALSE }
+# 4.12 Clean up Agency names
+
+# Create loans2 from loans1 and add the cleaned agency name
+loans2 <- loans1 %>%
+  mutate(agency_name_cleaned = agency_name %>% 
+           str_remove_all("[,.*]") %>% # Remove punctuation
+           str_trim() %>% # Trim whitespace
+           tolower() %>% # Convert to lowercase
+           str_remove("\\s+llc") %>% # Remove " llc"
+           str_remove("\\s+inc")%>% # Remove " inc"
+           str_remove("\\s+lp")%>%
+           str_replace("^windham$", "windham professionals"))
+
+# Reorder the columns to place the cleaned_agency_name right after agency_name
+column_order <- c(names(loans2)[1:which(names(loans2) == "agency_name")], "agency_name_cleaned", names(loans2)[-(1:which(names(loans2) == "agency_name") & -(which(names(loans2) == "agency_name")+1))])
+
+loans2 <- loans2[, column_order]
+
+
+# Create a new dataframe, excluding the original agency_name column
+clean_loans <- loans2[, -12]
+clean_loans <- clean_loans[, -1]
+
+# Rename 'agency_name_cleaned' to 'agency_name' in the new dataframe
+clean_loans <- rename(clean_loans, agency_name = agency_name_cleaned)
+
+clean_loans<- arrange(clean_loans, agency_name)
+
+rm(loans2)
+
+```
+
+
+# 5. Analysis
+
+
+The following table presents a comparison between the total defaulted loans and the total recovery strategies from Q4 2015 to Q4 2018. There is a substantial gap between these two figures. Total defaults amount to trillions of dollars, whereas total recoveries are only in the millions. This makes the recoveries a mere drop in the bucket in terms of paying back the loans.
+
+Below is a concise definition of each recovery method:
+  
+&nbsp;&nbsp;&nbsp;&nbsp;•	Consolidation: combining multiple loans into a single loan with a new, often extended repayment term and potentially a lower interest rate. It simplifies the repayment process and can make the debt more manageable for the debtor.
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	Rehabilitation: specific to defaulted loans, particularly student loans. It involves making a series of agreed-upon payments, after which the loan is considered rehabilitated, the default status is removed, and the debtor regains eligibility for benefits that were available before the default.
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	Voluntary Payments: payments that the debtor makes willingly, without coercion or garnishment. This method relies on the debtor’s initiative to pay back their debt under the existing terms or under renegotiated terms.
+
+&nbsp;&nbsp;&nbsp;&nbsp;•	Wage Garnishments: a legal process where a portion of a debtor's wages are withheld by their employer for the payment of a debt, as instructed by a court or other legal authority.
+
+
+
+###  5.1  Statistic Summery
+```{r stat_summery, eval=TRUE, include=TRUE, echo=FALSE}
+
+# 5.1.1 The summery statistics
+
+# Compute basic and detailed statistics
+basic_stats <- clean_loans %>%
+  summarise(
+ Total_Entries = n(),
+    Starting_Grand_Total = dollar(sum(starting, na.rm = TRUE)),
+    Added_Grand_Total = dollar(sum(added, na.rm = TRUE)),
+    Avg_Consolidation = dollar(mean(consolidation, na.rm = TRUE)),
+    Std_evConsolidation = dollar(sd(consolidation, na.rm = TRUE)),
+    Avg_Rehabilitation = dollar(mean(rehabilitation, na.rm = TRUE)),
+    Std_DevRehabilitation = dollar(sd(rehabilitation, na.rm = TRUE)),
+    Avg_VoluntaryPayments = dollar(mean(voluntary_payments, na.rm = TRUE)),
+    Avg_WageGarnishments = dollar(mean(wage_garnishments, na.rm = TRUE)),
+    Grand_Total_Recoveries = dollar(sum(total, na.rm = TRUE))
+   #NullValuesAdded = sum(is.na(added))
+)
+
+# Using kable to create a nicely formatted table
+kable(basic_stats, format = "html", caption = "Summer Statistics of Defualt Loans ")  %>%
+  kableExtra::kable_classic(full_width = F) %>%
+  kable_styling(full_width = TRUE, position = "left") 
+
+```
+
+The following table provides an in-depth statistical summary of default loans for each quarter from 2015 to 2018. There is missing data from Q3 2017 and Q4 2017. At a glance, 2017 had the highest amount of recovered loans.
+
+5.1.1 Statistic Summary by Quarter
+```{r stat_summery2, eval=TRUE, include=TRUE, echo=FALSE}
+
+#5.1.2 Statistic Summery by Quarter
+
+
+# Copy dataframe to preserve the original
+clean_loans3 <- clean_loans
+
+# Combine year and quarter into a single time representation
+clean_loans3 <- clean_loans3 %>%
+  mutate(Time = paste(year, "Q", quarter, sep=""))
+
+# Compute the summary statistics grouped by the new Time column
+time_summary <- clean_loans3 %>%
+  group_by(Time) %>%
+  summarise(
+    Total_Entries = n(),
+    Starting_Total = sum(starting, na.rm = TRUE),
+    Added_Total = sum(added, na.rm = TRUE),
+    Avg_Consolidation = mean(consolidation, na.rm = TRUE),
+    Std_DevConsolidation = sd(consolidation, na.rm = TRUE),
+    Avg_Rehabilitation = mean(rehabilitation, na.rm = TRUE),
+    Std_DevRehabilitation = sd(rehabilitation, na.rm = TRUE),
+    Avg_VoluntaryPayments = mean(voluntary_payments, na.rm = TRUE),
+    Avg_WageGarnishments = mean(wage_garnishments, na.rm = TRUE),
+    Total_Recoveries = sum(total, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(across(c(Starting_Total, Added_Total, Avg_Consolidation, Std_DevConsolidation, Avg_Rehabilitation, Std_DevRehabilitation, Avg_VoluntaryPayments, Avg_WageGarnishments, Total_Recoveries), dollar))
+
+# Create the summary table with kable
+kable(time_summary, format = "html", caption = "Summary Statistics of Default Loans per Quarter") %>%
+  kable_classic(full_width = F) %>%
+  kable_styling(full_width = TRUE, position = "left")
+
+
+```
+
+
+###  5.2 Recovery Rate
+The table below shows that  recovery rate has slowly decrease over time. The average recovery rate is 2.85% which is very low relative to the default existing loan.
+
+```{r recovery_rate,eval=TRUE, include=TRUE, echo=FALSE, message=FALSE}
+
+# 5.2 Recovery Rate
+
+# Copy dataframe to preserve the original
+clean_loans3 <- clean_loans
+
+# Combine year and quarter into a single time representation
+clean_loans3 <- clean_loans3 %>%
+  mutate(Time = paste(year, "Q", quarter, sep=""))
+
+# Compute the summary statistics grouped by the new Time column
+time_summary <- clean_loans3 %>%
+  group_by(Time) %>%
+  summarise(
+    Total_Entries = n(),
+    Starting_Total = sum(starting, na.rm = TRUE),
+    Total_Recoveries = sum(total, na.rm = TRUE),
+    Recovery_Rate = (Total_Recoveries / Starting_Total) * 100  # Now simply Recovery_Rate
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Starting_Total = dollar(Starting_Total),
+    Total_Recoveries = dollar(Total_Recoveries),
+    Recovery_Rate = paste0(formatC(Recovery_Rate, format = "f", digits = 2), "%")  # Formatting Recovery Rate as a percentage string
+  )
+
+# Calculate average recovery rate
+average_recovery_rate <- mean(as.numeric(sub("%", "", time_summary$Recovery_Rate)), na.rm = TRUE)
+average_recovery_rate_formatted <- paste0(formatC(average_recovery_rate, format = "f", digits = 2), "%")
+
+# Add the average recovery rate to the table
+time_summary <- bind_rows(time_summary, tibble(
+  Time = "Average Recovery Rate",
+  Total_Entries = NA_integer_,
+  Starting_Total = NA_character_,
+  Total_Recoveries = NA_character_,
+  Recovery_Rate = average_recovery_rate_formatted
+))
+
+# Create the summary table with kable
+kable(time_summary, format = "html", caption = "Summary Statistics of Default Loans per Quarter") %>%
+  kable_classic(full_width = FALSE) %>%
+  kable_styling(full_width = TRUE, position = "left")
+
+
+```
+
+ 
+###  5.3 Heat map: Agency, Time, Recovery Rate
+The following heatmap shows the effectiveness of each private loan collection agency based on their recovery rates. There are a few things that are worth mentioning. The 1Q of 2017 had the highest recovery rate for all private agencies within the time range being analyzed. Delta Management Associates had the highest recovery rate of about 34% in 17Q1. Other notable private agencies with high recovery rates include Collection Technology Incorporated and CBD Group, each with around 27%. The heatmap indicates that before Q2 2017, a large portion of private loan companies had relatively high recovery rates. However, after that quarter, these companies have missing data. There are only six private collection agencies that have a complete dataset: Windham Professionals, National Recoveries, Immediate Recoveries, GC Services, ConServe, and Coast Professionals. Overall, they hover around a 4.5% recovery rate throughout this dataset. After Q2 2017, the recovery rate has decreased, matching the summary recovery rate table above.
+```{r heatmap, eval=TRUE, include=TRUE, echo= FALSE, fig.width=10, fig.height=8}
+# 5.3 Heat Map
+
+# Calculate the latest year and quarter for each agency
+latest_year_quarter <- clean_loans %>%
+  mutate(year_quarter = paste(year, "Q", quarter, sep=""),
+         year_quarter_numeric = as.numeric(paste(year, quarter, sep=""))) %>%
+  group_by(agency_name) %>%
+  summarise(latest_year_quarter = max(year_quarter_numeric)) %>%
+  ungroup()
+
+# Create a new dataframe for the heatmap
+loans_heatmap <- clean_loans %>%
+  mutate(year_quarter = paste(year, "Q", quarter, sep=""),
+         year_quarter_numeric = as.numeric(paste(year, quarter, sep=""))) %>%
+  left_join(latest_year_quarter, by = "agency_name") %>%
+  mutate(recovery_rate = total / starting) %>%
+  drop_na(recovery_rate) %>%
+  # Reorder agency_name based on the latest year and quarter they have data for
+  mutate(agency_name = reorder(agency_name, -latest_year_quarter))
+
+# Calculate appropriate breaks within your data's range
+# Example: Generating breaks at more precise intervals
+min_rate <- min(loans_heatmap$recovery_rate, na.rm = TRUE)
+max_rate <- max(loans_heatmap$recovery_rate, na.rm = TRUE)
+breaks <- seq(from = min_rate, to = max_rate, length.out = 10) # Adjust length.out for more/less breaks
+
+# Create the heatmap plot with a more granular color scale
+heatmap_plot <- ggplot(loans_heatmap, aes(x = year_quarter, y = agency_name, fill = recovery_rate)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(
+    name = "Recovery Rate",
+    breaks = breaks,
+    labels = scales::percent(breaks)  # Convert to percentage and format
+  ) +
+  theme_light() +
+  labs(title = "Heatmap of Recovery Rate by Agency and Quarter-Year",
+       y = "Agency Name",
+       x = "Quarter-Year")
+
+# Print the heatmap plot
+heatmap_plot
+
+# Cleanup
+rm(latest_year_quarter)
+
+```
+
+
+
+
+###   5.4 Correlation Existing Loans Size and Recovery 
+
+The following includes a scatter plot and a table of Pearson Correlation Coefficients used to determine if there is a correlation between the starting amount of default loans and each recovery strategy. Graphically, there is a positive correlation for all recovery types: Consolidation, Rehabilitation, Voluntary Payments, and Wage Garnishments. In short, the higher the starting default loan amount, the higher the recovery method amount.
+
+```{r correlation, eval=TRUE, include=TRUE, echo=FALSE,  message=FALSE}
+
+#5.4 Correlation between existing default Loans and Recovery Method
+# Create individual plots for each recovery effort
+plot_consolidation <- ggplot(clean_loans, aes(x=starting, y=consolidation)) +
+  geom_point(alpha=0.5) + 
+  ggtitle("Consolidation vs. Starting Amount") +
+  xlab("Starting Amount ($)") + 
+  ylab("Consolidation ($)")
+
+plot_rehabilitation <- ggplot(clean_loans, aes(x=starting, y=rehabilitation)) +
+  geom_point(alpha=0.5) +
+  ggtitle("Rehabilitation vs. Starting Amount") +
+  xlab("Starting Amount ($)") + 
+  ylab("Rehabilitation ($)")
+
+plot_voluntary_payments <- ggplot(clean_loans, aes(x=starting, y=voluntary_payments)) +
+  geom_point(alpha=0.5) +
+  ggtitle("Voluntary Payments vs. Starting Amount") +
+  xlab("Starting Amount ($)") + 
+  ylab("Voluntary Payments ($)")
+
+plot_wage_garnishments <- ggplot(clean_loans, aes(x=starting, y=wage_garnishments)) +
+  geom_point(alpha=0.5) +
+  ggtitle("Wage Garnishments vs. Starting Amount") +
+  xlab("Starting Amount ($)") + 
+  ylab("Wage Garnishments ($)")
+
+# Arrange the plots in a grid
+grid.arrange(plot_consolidation, plot_rehabilitation, plot_voluntary_payments, plot_wage_garnishments, ncol = 2)
+
+
+rm(plot_consolidation, plot_rehabilitation, plot_voluntary_payments, plot_wage_garnishments)
+```
+
+
+ 5.4.1  Pearson's Correlation Coefficent
+ 
+Using the Pearson Correlation Coefficient, we can see how strong the correlation is between the starting default loan amount and the recovery method. The closer the value is to 1 or -1, the stronger the correlation between each variable. The recovery method with the strongest correlation is Voluntary Payments, with a coefficient of 0.936. This indicates that people with high starting default loans have a stronger tendency to repay higher amounts of their default loans through voluntary payments compared to other recovery methods.
+ 
+ 
+```{r Pearson_c, eval=TRUE, include=TRUE, echo=FALSE, warning=FALSE}
+
+
+# 5.4.1  Pearson's Correlation Coefficient
+# Create a data frame with recovery methods and their correlation coefficients
+correlation_data <- data.frame(
+  Recovery_Method = c("Consolidation", "Rehabilitation", "Voluntary Payments", "Wage Garnishments"),
+  Pearson_Coefficient = c(
+    cor(clean_loans$starting, clean_loans$consolidation, use = "complete.obs"),
+    cor(clean_loans$starting, clean_loans$rehabilitation, use = "complete.obs"),
+    cor(clean_loans$starting, clean_loans$voluntary_payments, use = "complete.obs"),
+    cor(clean_loans$starting, clean_loans$wage_garnishments, use = "complete.obs")
+  )
+)
+
+
+kable(correlation_data, format = "html", caption = "Pearson Correlation Coefficients for Recovery Efforts")  %>%
+  kableExtra::kable_classic(full_width = F) %>%
+  kable_styling(full_width = TRUE, position = "left") 
+
+# Remove specified variables from the R environment
+rm(correlation_data)
+
+```
+
+
+###   5.5 Comparing Recoveries Across All Agency
+
+Overall, the line chart below illustrates the effectiveness of the various recovery methods, with the Rehabilitation method emerging as the most effective. It is twice as effective as its counterparts. The second most effective method is Consolidation, which has seen an increase from approximately $200 million in the first quarter of 2016 to consistently around $350 million by the fourth quarter of 2018. The other two methods, Wage Garnishments and Voluntary Payments, have remained relatively consistent over the years.
+
+```{r line_chart1, eval=TRUE, include=TRUE,message=FALSE, echo=FALSE}
+
+#5.5 Comparing recoveries across all agency
+# Assuming 'clean_loans' is already loaded and filtered for NA in the recovery method columns
+recovery_totals <- clean_loans %>%
+  group_by(year, quarter) %>%
+  summarise(
+    TotalConsolidation = sum(consolidation, na.rm = TRUE),
+    TotalRehabilitation = sum(rehabilitation, na.rm = TRUE),
+    TotalVoluntaryPayments = sum(voluntary_payments, na.rm = TRUE),
+    TotalWageGarnishments = sum(wage_garnishments, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(period = paste(year, "Q", quarter)) %>%
+  gather(key = "Method", value = "TotalRecovery", -year, -quarter, -period)
+
+# Plot the data
+ggplot(recovery_totals, aes(x = period, y = TotalRecovery, colour = Method, group = Method)) +
+  geom_line() +
+  geom_point() +  # Ensures points are visible for each period
+  scale_y_continuous(
+    labels = function(x) paste0("$", formatC(x / 1e9, format = "f", digits = 2), "B"), # Custom format for monetary values in billions
+    breaks = scales::pretty_breaks(n = 5)  # Adjust number of breaks as needed
+  ) +
+  labs(title = "Effectiveness of Recovery Methods Over Time",
+       x = "Year and Quarter",
+       y = "Total Recovery Amount",
+       color = "Method") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+5.5.1 Comparing Recoveries for Individual Agencies
+
+The following multi-line chart arranges the agencies from highest to lowest recovery rates. The top five agencies with the highest recovery rates are GC Services, Coastal Professional, Immediate Credit Recovery, Allied Interstate, and National Recovery. The benefit of this chart offers a comparative view of each organization’s performance. It is important to note that an agency with a high recovery rate percentage does not necessarily correspond to a high overall recovery amount. For instance, Delta Management Associates has a recovery rate of approximately 34.6%, but excels primarily in the Rehabilitation method, which totaled only around $100 million in the fourth quarter of 2018. Compared to other agencies in this dataset, it is on the lower end of the spectrum.
+
+
+```{r line_chart2 ,eval=TRUE, include=TRUE,echo=FALSE, results='hide',messages= FALSE, fig.width=11, fig.height=7}
+#5.5.1 Comparing recoveries for individual agency
+
+# Combine year and quarter into a single date column in the preloaded data frame
+clean_loans$time_period <- as.Date(paste(clean_loans$year, clean_loans$quarter * 3 - 2, "1", sep="-"))
+
+# Convert to a long format for easier plotting with ggplot2
+clean_loans_long <- clean_loans %>%
+  select(agency_name, time_period, consolidation, rehabilitation, voluntary_payments, wage_garnishments) %>%
+  pivot_longer(cols = c("consolidation", "rehabilitation", "voluntary_payments", "wage_garnishments"),
+               names_to = "method", values_to = "amount_recovered")
+
+# Calculate the maximum recovery amount for each agency to determine the sorting order
+agency_order <- clean_loans_long %>%
+  group_by(agency_name) %>%
+  summarise(max_recovery = max(amount_recovered, na.rm = TRUE)) %>%
+  arrange(desc(max_recovery)) %>%
+  pull(agency_name)
+
+# Create the faceted line chart, ordering facets by maximum recovery amount
+ggplot(clean_loans_long, aes(x = time_period, y = amount_recovered, color = method)) +
+  geom_line() +
+  facet_wrap(~ factor(agency_name, levels = agency_order), scales = "fixed") +
+  scale_y_continuous(
+    labels = function(x) paste0("$", formatC(x / 1e6, format = "f", digits = 0), "M"), # Custom format for monetary values in millions
+    breaks = scales::pretty_breaks(n = 5)  # Adjust number of breaks as needed
+  ) +
+  labs(title = "Recovery Methods Over Time by Agency, Ordered by Maximum Recovery",
+       x = "Time Period",
+       y = "Amount Recovered",
+       color = "Method") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Improve x-axis label readability
+        strip.text = element_text(size = 6, face = "bold"))
+
+```
+
+### 5.6 Bar Graph and Time
+
+Another effective way to compare agencies is through the multi-bar chart below, which contrasts their starting values and recovery amounts. The blue bars represent the starting default loans for each agency in each quarter, from the fourth quarter of 2015 to the fourth quarter of 2018. The other colors in the bars denote the total recovery for each method. According to table 5.2 on Recovery Data, this multi-bar chart provides a clear visual explanation of why the recovery rates are so low; the amounts recovered are minuscule compared to the existing defaulted loans. The agencies are ordered from 1 to 33 in alphabetical order. Noteworthy are Account Control Technology, Immediate Credit Recovery, National Credit Service, and National Recovery Services, which reported the highest amounts of defaulted loans, exceeding $9 billion in 2018.
+
+
+```{r Bar_graph_time ,eval=TRUE, include=TRUE,messages= FALSE, echo=FALSE, fig.width=12, fig.height=10}
+
+# 5.6 Bar Graph and time
+# Assuming 'clean_loans' is your original dataframe
+bar_grap <- clean_loans %>%
+  select(agency_name, starting, consolidation, rehabilitation, voluntary_payments, wage_garnishments, year, quarter) %>%
+  filter(year %in% 15:18 & quarter %in% 1:4)  # Adjust to your actual data range
+
+# Create a consistent mapping of agency names to numeric IDs
+agency_levels <- unique(bar_grap$agency_name) %>% sort()
+
+# Convert to billions for easier visualization and assign consistent numeric IDs
+bar_grap <- bar_grap %>%
+  mutate(
+    across(c(starting, consolidation, rehabilitation, voluntary_payments, wage_garnishments), ~ .x / 1e9),
+    agency_id = as.numeric(factor(agency_name, levels = agency_levels))
+  )
+
+# Maximum agency_id for setting breaks
+max_id <- max(bar_grap$agency_id)
+
+# Create ggplot
+p <- ggplot(data = bar_grap, aes(x = agency_id)) +
+  geom_bar(aes(y = starting, fill = "Starting"), stat = "identity") +
+  geom_bar(aes(y = consolidation, fill = "Consolidation"), stat = "identity") +
+  geom_bar(aes(y = rehabilitation, fill = "Rehabilitation"), stat = "identity") +
+  geom_bar(aes(y = voluntary_payments, fill = "Voluntary Payments"), stat = "identity") +
+  geom_bar(aes(y = wage_garnishments, fill = "Wage Garnishments"), stat = "identity") +
+  labs(x = "Agency ID", y = "Dollar Amount (Billions)", title = "Interactive Stacked Bar Chart of Loan Payments") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = rel(0.8))) +
+  scale_fill_manual(values = c("Starting" = "blue", "Consolidation" = "red", "Rehabilitation" = "green", "Voluntary Payments" = "purple", "Wage Garnishments" = "orange")) +
+  scale_x_continuous(breaks = 1:max_id) +
+  facet_wrap(~ paste(year, 'Q', quarter))
+
+# Convert to plotly for interactivity
+ggplotly(p, tooltip = "text") %>%
+  layout(
+    margin = list(b = 80),
+    xaxis = list(title = "Agency ID"),
+    yaxis = list(title = "Dollar Amount (Billions)")
+  )
+
+```
+
+
+5.6.1 The Follow table is the name key for the associated number for the chart above.
+
+```{r kable_bar,eval=TRUE, include=TRUE, messages=FALSE, echo=FALSE}
+
+#5.6.1 Legend Name Key
+
+# Extract unique, sorted agency names
+agency_levels <- unique(clean_loans$agency_name) %>% sort()
+
+# Create a dataframe for kable with consistent ID mapping
+agency_key_df <- tibble(
+  agency_name = agency_levels,
+  agency_id = seq_along(agency_levels)
+)
+
+# Calculate the midpoint for splitting the dataframe
+mid_point <- nrow(agency_key_df) / 2
+
+# Split the dataframe into two parts
+left_df <- agency_key_df[1:ceiling(mid_point), ]
+right_df <- agency_key_df[(ceiling(mid_point) + 1):nrow(agency_key_df), ]
+
+# If the right dataframe has fewer rows, add an empty row to balance
+if (nrow(left_df) != nrow(right_df)) {
+  right_df <- rbind(right_df, tibble(agency_name = NA, agency_id = NA))
+}
+
+# Combine the two dataframes side by side
+combined_df <- bind_cols(left_df, right_df)
+names(combined_df) <- c("Agency Name ", "Agency ID ", "Agency Name ", "Agency ID ")
+
+
+# Generate the table with a vertical line between columns 2 and 3
+agency_key_table <- kable(combined_df, col.names = names(combined_df), format = "html", caption = "") %>%
+  column_spec(2, border_right = TRUE)  # Add border to the right of the 2nd column
+
+
+
+# Print or render the table
+agency_key_table
+
+
+```
+<br><br>
+
+
+5.6.2 Interactive Bar Chart- Shiny App
+
+The following interactive bar chart allows for a more focused view of each quarter in the dataset. Compared to the multi-bar chart above, this interactive chart powered by a Shiny app provides a detailed view for each quarter. Here, you can see a clear comparison between the recovery method and the total default loan for each agency. The interactive chart includes a zoom feature that allows for a closer inspection of each agency and their starting default loan and recovery amount.
+
+[Shiny_app](https://vokub9-jason-day.shinyapps.io/shinyloan)
+
+<iframe src="https://vokub9-jason-day.shinyapps.io/shinyloan" style="width:100%; height:800px;"></iframe>
+
+
+
+
+
+###  5.7 Added Default Loans Across Quarters
+
+The line chart below shows the total added default loans for each quarter. The first thing to note is the missing data from Q3 2017 to Q4 2017. From Q4 2016, added default loans were consistent throughout Q2 2017 until the missing data of Q3 and Q4 2017. However, from Q2 2018 to the end of the dataset, added default loans have increased drastically, from $2 to $5 billion. 
+
+Possible causes of the increasing trend from Q1 2018 are proposals by the Trump administration to overhaul federal student loan programs. These proposals included eliminating certain income-driven repayment plans and forgiving loans for public sector workers. The U.S. Department of Education also considered changes that impacted borrower defenses against repayment claims and discharges, which could affect borrowers' ability to manage or discharge their loans in cases of fraud by educational institutions. Additionally, the Federal Reserve raised interest rates several times in 2018, which could impact borrowers with variable-rate private student loans, potentially increasing their monthly payments as well.
+```{r line chart, eval=TRUE, include=TRUE, echo=FALSE, fig.width=13, fig.height=9 }
+
+###  5.7 Added default loans
+
+# Group by agency, year, and quarter, and summarize the total 'added' per period per agency
+agency_trend_data <- clean_loans %>%
+  group_by(agency_name, year, quarter) %>%
+  summarise(added = sum(added), .groups = 'drop')
+
+# Create a time period column for plotting
+agency_trend_data <- agency_trend_data %>%
+  mutate(period = paste(year, 'Q', quarter, sep=""))
+
+# Plotting the trend of new defaulted debt added for each agency over time using ggplot
+p <- ggplot(agency_trend_data, aes(x = period, y = added / 1e9, group = agency_name, color = agency_name, 
+                                   text = paste("Agency:", agency_name, "<br>Added: $", format(added / 1e9, big.mark = ",", suffix = "B", prefix = "$")))) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = dollar_format(suffix = "B", prefix = "$", scale = 1)) +
+  theme_minimal() +
+  labs(title = "Trend of New Defaulted Debt Added by Each Agency Over Time",
+       x = "Time Period",
+       y = "Total Defaulted Debt Added (Billions $)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+# Convert to plotly and add tooltip for interactivity
+plotly::ggplotly(p, tooltip = "text")
+
+
+```
+
+
+###  5.8  Recovery Method Forcasting
+
+Here's your paragraph with grammar and spelling corrections:
+
+The chart below employs the ARIMA method to predict future recovery values for each recovery method. A comprehensive explanation of the ARIMA Method can be found in the Appendix. Utilizing the ARIMA Method, we have generated four forecasting charts for each recovery scenario. The ARIMA chart exhibits the following characteristics: The blue point represents the future forecast point, the dark gray area indicates the 95% confidence interval where accurate points are expected to fall, and the light gray area represents a forecast with an 80% accuracy rate within that range.
+
+The Rehabilitation Recovery Payment forecast shows a more inconsistent increase from Q1 2019 to Q2 2019, with a slight increase from $1.8 billion to $2.0 billion. A decrease to $1.6 billion in Q3 is expected, rising back up again to $1.8 billion.
+
+The Voluntary Payment Recovery chart shows that there will be a continued increase in this recovery. The forecast shows an increase from $140 million of voluntary payment at Q1 2019 to $180 million at Q4 2019 with 95% accuracy.
+
+Wage Garnishment and Consolidation Recovery forecasts are less accurate compared to the preceding recovery methods. This reduced accuracy can be attributed to the nature of past data, as illustrated in the scatter plot provided in section 5.4 of this report. The correlation between recovery methods and starting loans demonstrates a deviation from the linear trend over time. This deviation can lead to decreased forecast accuracy.
+
+Consolidation recovery is forecast to stay around $310 million from Q1 2019 to Q4 2019 with a wide possibility of a +/- $100 million deviation. It is similar for Wage Garnishment, forecasted to stay consistent at around $240 million of paid loans with a +/- $100 million deviation.
+
+```{r forcasting, eval=TRUE, include=TRUE,message=FALSE,echo=FALSE, results='hide'}
+#5.8  Recovery Method Forcasting
+# Assuming 'clean_loans' is your DataFrame and 'rehabilitation' is one of the recovery variables
+# Convert your rehabilitation data into a time series object
+# Group by 'year' and 'quarter' and sum up the 'rehabilitation' amounts for each group
+rehab_data <- clean_loans %>%
+  group_by(year, quarter) %>%
+  summarise(rehabilitation = sum(rehabilitation, na.rm = TRUE)) %>%
+  arrange(year, quarter) %>%
+  ungroup()  # Ungroup to avoid grouping issues in time series creation
+
+# Assuming rehabilitation data is quarterly, create a ts object
+ts_rehab <- ts(rehab_data$rehabilitation, frequency = 4, start = c(rehab_data$year[1], rehab_data$quarter[1]))
+
+# Fit an ARIMA model to the rehabilitation data
+fit_rehab <- auto.arima(ts_rehab)
+summary(fit_rehab)
+
+
+#---
+future_rehab <- forecast(fit_rehab, h = 4)  # Forecast the next 4 quarters
+
+# Plot the forecast with base R plot, suppressing the default y-axis labels using yaxt = "n"
+plot(future_rehab, ylab="", xlab="Year & Quarter", yaxt="n" , main= "Forcast for Rehabilitation Recovery ")
+
+# Add custom y-axis labels in monetary format
+money_format <- function(x) {
+  paste0("$", formatC(x/1e9, format="f", digits=2), "B")
+}
+axis(2, at=axTicks(2), labels=money_format(axTicks(2)), las=1)
+
+#--Voluntary Payments
+
+# Assuming 'clean_loans' is your DataFrame and 'voluntary_payments' is one of the recovery variables
+voluntary_data <- clean_loans %>%
+  group_by(year, quarter) %>%
+  summarise(voluntary_payments = sum(voluntary_payments, na.rm = TRUE)) %>%
+  arrange(year, quarter) %>%
+  ungroup()  # Prepare data for time series creation
+
+# Create a time series object for voluntary payments
+ts_voluntary <- ts(voluntary_data$voluntary_payments, frequency = 4, start = c(voluntary_data$year[1], voluntary_data$quarter[1]))
+
+# Fit an ARIMA model to the voluntary payments data
+fit_voluntary <- auto.arima(ts_voluntary)
+summary(fit_voluntary)
+
+# Forecast future values of voluntary payments recoveries
+future_voluntary <- forecast(fit_voluntary, h = 4)  # Forecast the next 4 quarters
+
+# Plot the forecast for voluntary payments
+plot(future_voluntary, ylab="", xlab="Year & Quarter", yaxt="n", main="Forecast for Voluntary Payments Recovery")
+
+# Add custom y-axis labels in monetary format
+money_format <- function(x) {
+  paste0("$", formatC(x/1e9, format="f", digits=2), "B")
+}
+axis(2, at=axTicks(2), labels=money_format(axTicks(2)), las=1)
+
+#----Wage Garnishments:
+
+wage_data <- clean_loans %>%
+  group_by(year, quarter) %>%
+  summarise(wage_garnishments = sum(wage_garnishments, na.rm = TRUE)) %>%
+  arrange(year, quarter) %>%
+  ungroup()  # ** Prepare data for wage garnishments time series creation
+
+
+ts_wage <- ts(wage_data$wage_garnishments, frequency = 4, start = c(wage_data$year[1], wage_data$quarter[1]))
+
+
+fit_wage <- auto.arima(ts_wage)
+summary(fit_wage)
+
+
+future_wage <- forecast(fit_wage, h = 4)  # ** Forecast the next 4 quarters
+
+
+plot(future_wage, ylab="", xlab="Year & Quarter", yaxt="n", main="Forecast for Wage Garnishments Recovery")
+
+# ** This function remains the same as it is just formatting the y-axis labels
+money_format <- function(x) {
+  paste0("$", formatC(x/1e9, format="f", digits=2), "B")
+}
+
+# ** Added the y-axis labels to the plot with 'future_wage'
+axis(2, at=axTicks(2), labels=money_format(axTicks(2)), las=1)
+
+#-- consolidation
+
+consolidation_data <- clean_loans %>%
+  group_by(year, quarter) %>%
+  summarise(consolidation = sum(consolidation, na.rm = TRUE)) %>%
+  arrange(year, quarter) %>%
+  ungroup()  # ** Prepare data for consolidation time series creation
+
+
+ts_consolidation <- ts(consolidation_data$consolidation, frequency = 4, start = c(consolidation_data$year[1], consolidation_data$quarter[1]))
+
+
+fit_consolidation <- auto.arima(ts_consolidation)
+summary(fit_consolidation)
+
+
+future_consolidation <- forecast(fit_consolidation, h = 4)  # ** Forecast the next 4 quarters
+
+
+plot(future_consolidation, ylab="", xlab="Year & Quarter", yaxt="n", main="Forecast for Consolidation Recovery")
+
+# ** This function remains the same as it is just formatting the y-axis labels
+money_format <- function(x) {
+  paste0("$", formatC(x/1e9, format="f", digits=2), "B")
+}
+
+# ** Added the y-axis labels to the plot with 'future_consolidation'
+axis(2, at=axTicks(2), labels=money_format(axTicks(2)), las=1)
+
+
+
+
+```
+
+
+# 6. Conclusion
+The analysis from Q4 2015 to Q4 2018 reveals a significant shortfall in the recovery of defaulted loans, with total recoveries forming only a minor fraction compared to the trillions of dollars in defaulted amounts. Rehabilitation emerges as the most effective recovery method, notably more successful than consolidation, voluntary payments, and wage garnishments. There is a positive correlation between the size of the defaulted loans and the recovery amounts, with voluntary payments showing the strongest correlation. The trend of increasing default loans, particularly from 2018, appears influenced by economic policies and changes in loan management practices. Recovery rates have shown a general decline over the period, with seasonal peaks in early quarters, potentially linked to financial cycles. Predictive models suggest a stable future for most recovery methods, although the overall effectiveness of current strategies may need reassessment to address the growing default rates.
+
+How could your team and business apply your insights?
+
+The data not only highlights the substantial volume of default student debt in the United States but also assesses the effectiveness of each private loan agency in utilizing the four recovery methods: Rehabilitation, Consolidation, Voluntary Payments, and Wage Garnishment. By analyzing this data, we can identify which agencies are particularly adept at employing these strategies. This enables us to strategically allocate resources to those agencies, focusing on the specific recovery tactics they excel in. Such targeted allocation can significantly enhance the overall debt recovery rates.
+
+What next steps would you or your stakeholders take based on your findings?
+
+Assess the performance of each agency to identify best practices and areas needing improvement. Engage with high-performing agencies to understand their tactics and potentially renegotiate terms or contracts based on performance metrics.
+
+Is there additional data you could use to expand on your findings?
+
+Information about the debtors, such as age, location, and income level, could provide deeper insights into which strategies work best for different groups. Data on local economic conditions might help correlate the debt collection success with economic factors, providing a more nuanced understanding of the impact of external conditions on debt recovery. Lastly, the data set analyzed is not up to date. The data ranged from Q4 2015 to Q4 2018 from the United States government's Student Aid website. Access to current data could further allow us to see specific patterns and trends in performance for each private collection agency.
+
+
+# 7. Appendix 
+
+```{r Appendix, ref.label = knitr::all_labels(), echo = TRUE, eval = FALSE}
+
+```
+
+ARIMAS FORCASTING: Predicting recovery values by ARIMA forecasting.  We first determine if the data is stationary by checking if the data is a time series. Stationary meaning the mean and variance is constant over time. To help us determine if the data is  stationary, we use the Augmented Dickey Fuller test. 
+The Fuller test provides a p value, if p is less than .05 which means the null hypothesis is rejected. This indicates  to us that the mean and variance of the data points is consistent allowing us to specify that dataset is stationary. We then choose the  ARIMA models that best match the data series. ARIMA stands for the following:
+
+•	AR, is auto regressive which is future data point forecast  is dependent on past data point,
+
+•	I, is integrated ,Differences between consecutive data points are calculated to make the series stationary if the original data is non-stationary
+
+•	MA is moving average; this is smoothing out noise from the error value dependent on yesterdays error and the day before. 
+
+There are parameters in using ARIMA that can be adjusted:
+
+•	p auto regressive, is the number of past values used to determine future value. 
+
+•	d is differencing order, the number of time data has been subtracted from past values. 
+
+•	Q is Moving average is how much forest error is used to predict future error. 
+
+The following R code performers the above concepts  as well as organizes the data into time series combing year and quarter into one column.  It then uses auto.arimas () function  which automates choosing the best p, d, q values and selects choose the right model for the data to determine forecast data points. Finally a graphical chart is then produced to visualize the forecast data point
