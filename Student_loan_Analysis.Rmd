@@ -570,7 +570,7 @@ rm(loans2)
 # 5. Analysis
 
 
-The following table presents a comparison between the total defaulted loans and the total recovery strategies from Q4 2015 to Q4 2018. There is a substantial gap between these two figures. Total defaults amount to trillions of dollars, whereas total recoveries are only in the millions. This makes the recoveries a mere drop in the bucket in terms of paying back the loans.
+The following table presents a comparison between the total defaulted loans and the total recovery strategies from Q4 2015 to Q4 2018. There is a substantial gap between the default loans total and the total default loans recovered. 
 
 Below is a concise definition of each recovery method:
   
