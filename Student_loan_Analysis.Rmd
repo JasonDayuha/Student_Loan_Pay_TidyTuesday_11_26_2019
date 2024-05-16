@@ -1005,17 +1005,13 @@ agency_key_table
 ```
 <br><br>
 
-
 5.6.2 Interactive Bar Chart- Shiny App
 
 The following interactive bar chart allows for a more focused view of each quarter in the dataset. Compared to the multi-bar chart above, this interactive chart powered by a Shiny app provides a detailed view for each quarter. Here, you can see a clear comparison between the recovery method and the total default loan for each agency. The interactive chart includes a zoom feature that allows for a closer inspection of each agency and their starting default loan and recovery amount.
 
-[Shiny_app](https://vokub9-jason-day.shinyapps.io/shinyloan)
-
-<iframe src="https://vokub9-jason-day.shinyapps.io/shinyloan" style="width:100%; height:800px;"></iframe>
-
-
-
+[Student default loan shiny app](https://vokub9-jason-day.shinyapps.io/shinyloan)
+<iframe src="https://vokub9-jason-day.shinyapps.io/shinyloan" data-external="1" width="800px" height="700px">
+</iframe>
 
 
 ###  5.7 Added Default Loans Across Quarters
