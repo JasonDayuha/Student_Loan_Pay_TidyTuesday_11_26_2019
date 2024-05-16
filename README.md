@@ -1,2 +1,3 @@
 # Student_Loan_Pay_TidyTuesday_11_26_2019
 
+This analysis is part of the weekly data analysis program from Tidy Tuesday. It consists of a community of individuals who have a passion for data analytics. Each week, the community analyzes a data project, shares their findings to enhance data analysis skills, and deepens understanding of the week’s subject. The focus of this project is specifically on US student loan debt, particularly default debt. We will analyze the amount of student loan defaults managed by various private collection agencies across the US, as well as newly added loans. Additionally, we will examine the various methods through which defaulted loans have been recovered.
