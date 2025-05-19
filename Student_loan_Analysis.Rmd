@@ -1058,7 +1058,6 @@ plotly::ggplotly(p, tooltip = "text")
 
 ###  5.8  Recovery Method Forcasting
 
-Here's your paragraph with grammar and spelling corrections:
 
 The chart below employs the ARIMA method to predict future recovery values for each recovery method. A comprehensive explanation of the ARIMA Method can be found in the Appendix. Utilizing the ARIMA Method, we have generated four forecasting charts for each recovery scenario. The ARIMA chart exhibits the following characteristics: The blue point represents the future forecast point, the dark gray area indicates the 95% confidence interval where accurate points are expected to fall, and the light gray area represents a forecast with an 80% accuracy rate within that range.
 
